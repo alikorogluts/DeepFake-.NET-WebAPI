@@ -1,0 +1,43 @@
+# =========================
+# .NET / C#
+# =========================
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+*.user
+*.userosscache
+*.sln.docstates
+
+# =========================
+# Mac OS
+# =========================
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+
+# =========================
+# IDEs (Rider, VS, VS Code)
+# =========================
+.idea/
+.vscode/
+*.suo
+*.userprefs
+*.ide
+
+# =========================
+# Python (İlerisi için hazırlık)
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.env
+
+# =========================
+# Uygulama Sırları ve Loglar
+# =========================
+*.log
+appsettings.json
+appsettings.Development.json
