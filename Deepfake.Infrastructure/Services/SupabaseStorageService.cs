@@ -1,5 +1,6 @@
+using System.IO;
+using System.Threading.Tasks;
 using Deepfake.Application.Interfaces;
-using Microsoft.AspNetCore.Http;
 using Supabase;
 
 namespace Deepfake.Infrastructure.Services;
@@ -13,21 +14,30 @@ public class SupabaseStorageService : IStorageService
         _supabaseClient = supabaseClient;
     }
 
-    public async Task<string> UploadImageAsync(IFormFile file, string bucketName, string fileName)
+    // YENİ EVRENSEL METODUMUZ
+    public async Task<string> UploadFileAsync(Stream fileStream, string bucketName, string fileName, string contentType = "image/jpeg")
     {
-        // 1. Dosyayı hafızaya (byte dizisine) oku
         using var memoryStream = new MemoryStream();
-        await file.CopyToAsync(memoryStream);
+        await fileStream.CopyToAsync(memoryStream);
         var fileBytes = memoryStream.ToArray();
 
-        // 2. Supabase Storage'a yükle (Aynı isimde varsa üzerine yazar: Upsert = true)
+        var options = new Supabase.Storage.FileOptions { CacheControl = "3600", Upsert = true, ContentType = contentType };
+        
         await _supabaseClient.Storage
             .From(bucketName)
-            .Upload(fileBytes, fileName, new Supabase.Storage.FileOptions { CacheControl = "3600", Upsert = true });
+            .Upload(fileBytes, fileName, options);
 
-        // 3. Yüklenen dosyanın herkes tarafından erişilebilir (Public) URL'ini al ve döndür
-        var publicUrl = _supabaseClient.Storage.From(bucketName).GetPublicUrl(fileName);
+        return _supabaseClient.Storage.From(bucketName).GetPublicUrl(fileName);
+    }
+
+    public async Task<string> UploadFileBytesAsync(byte[] fileBytes, string bucketName, string fileName)
+    {
+        var options = new Supabase.Storage.FileOptions { CacheControl = "3600", Upsert = true };
         
-        return publicUrl;
+        await _supabaseClient.Storage
+            .From(bucketName)
+            .Upload(fileBytes, fileName, options);
+
+        return _supabaseClient.Storage.From(bucketName).GetPublicUrl(fileName);
     }
 }

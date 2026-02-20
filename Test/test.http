@@ -19,3 +19,58 @@ Content-Type: image/jpeg
 
 < ./test.jpeg
 ------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+
+### 2️⃣ Görsel Upload Testi
+POST {{host}}/api/Analysis/upload
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="test.jpeg"
+Content-Type: image/jpeg
+
+< ./test.jpeg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+
+### 2️⃣ Görsel Upload Testi
+POST {{host}}/api/Analysis/upload
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="test.jpeg"
+Content-Type: image/jpeg
+
+< ./test.jpeg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+
+
+### 2️⃣ Görsel Upload Testi
+POST {{host}}/api/Analysis/upload
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="test.jpeg"
+Content-Type: image/jpeg
+
+< ./test.jpeg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+
+
+
+### 2️⃣ Görsel Upload Testi
+POST {{host}}/api/Analysis/upload
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="test.jpeg"
+Content-Type: image/jpeg
+
+< ./test.jpeg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--

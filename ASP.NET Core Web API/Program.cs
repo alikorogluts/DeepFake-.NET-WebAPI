@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Threading.RateLimiting;
+using ASP.NET_Core_Web_API.Workers;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,17 +23,15 @@ builder.Services.AddSingleton(new Supabase.Client(supabaseUrl!, supabaseKey, sup
 // Kendi yazdığımız IStorageService'i Infrastructure'daki SupabaseStorageService ile eşleştiriyoruz
 builder.Services.AddScoped<Deepfake.Application.Interfaces.IStorageService, Deepfake.Infrastructure.Services.SupabaseStorageService>();
 
-var pythonBaseUrl = builder.Configuration["PythonApi:BaseUrl"];
-var pythonApiKey = builder.Configuration["PythonApi:ApiKey"];
-builder.Services.AddHttpClient<Deepfake.Application.Interfaces.IPythonService, Deepfake.Infrastructure.Services.PythonFastApiClient>(client =>
-{
-    // Python servisinin çalışacağı adres (Şimdilik lokalde FastAPI'nin varsayılan portu 8000 varsayalım)
-    client.BaseAddress = new Uri(pythonBaseUrl!);    
-    // Rapordaki kısıtlamaya göre maksimum 60 saniye bekler, sonra işlemi keser 
-    client.Timeout = TimeSpan.FromSeconds(60); 
-    //Her isteğin başına key ekler 
-    client.DefaultRequestHeaders.Add("X-API-Key", pythonApiKey);
-});
+
+// RABBITMQ PUBLISHER SERVİSİ
+builder.Services.AddScoped<Deepfake.Application.Interfaces.IAnalysisJobPublisher, Deepfake.Infrastructure.Services.RabbitMqPublisherService>();
+
+// Arka Plan Dinleyicisini (Worker) Kaydet
+builder.Services.AddHostedService<RabbitMqResultListener>();   
+
+// REPOSITORY PATTERN KAYDI
+builder.Services.AddScoped<Deepfake.Application.Interfaces.IAnalysisRepository, Deepfake.Infrastructure.Repositories.AnalysisRepository>();
 
 // 2. JWT Authentication Ayarları
 var jwtSecret = builder.Configuration["JwtSettings:Secret"];
