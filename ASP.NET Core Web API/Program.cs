@@ -49,21 +49,41 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
-// 3. IP Tabanlı Rate Limiter Ayarları
+
+// 3. IP Tabanlı Akıllı Rate Limiter Ayarları
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.AddPolicy("IpRateLimiter", httpContext =>
+
+    options.GlobalLimiter = System.Threading.RateLimiting.PartitionedRateLimiter.CreateChained( 
+        // 1. Kural: Dakikada 5 İstek [cite: 305]
+    System.Threading.RateLimiting.PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
     {
-        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        return RateLimitPartition.GetFixedWindowLimiter(ip, _ =>
-            new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 5, // Dakikada maksimum 5 istek
-                Window = TimeSpan.FromMinutes(1)
-            });
-    });
+        // SADECE Upload endpoint'ini sınırla!
+        if (httpContext.Request.Path.StartsWithSegments("/api/Analysis/upload", StringComparison.OrdinalIgnoreCase))
+        {
+            var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            return System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter($"{ip}-min", _ =>
+                new System.Threading.RateLimiting.FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(1) });
+        }
+        // Diğer tüm istekler (history, result) Sınırsız!
+        return System.Threading.RateLimiting.RateLimitPartition.GetNoLimiter("unlimited");
+    }),
+        
+    
+    System.Threading.RateLimiting.PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+    {
+        if (httpContext.Request.Path.StartsWithSegments("/api/Analysis/upload", StringComparison.OrdinalIgnoreCase))
+        {
+            var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            return System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter($"{ip}-hour", _ =>
+                new System.Threading.RateLimiting.FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromHours(1) });
+        }
+        return System.Threading.RateLimiting.RateLimitPartition.GetNoLimiter("unlimited");
+    })
+    );
 });
+
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();

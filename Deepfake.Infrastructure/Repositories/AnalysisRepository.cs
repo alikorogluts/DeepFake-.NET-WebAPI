@@ -37,4 +37,13 @@ public class AnalysisRepository : IAnalysisRepository
     {
         return await _dbContext.AnalysisResults.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
     }
+    public async Task<(int totalCount, List<AnalysisResult> data)> GetHistoryAsync(int page, int pageSize)
+    {
+        // En yeni analizler en üstte olacak şekilde (CreatedAt DESC) sıralıyoruz
+        var query = _dbContext.AnalysisResults.AsNoTracking().OrderByDescending(x => x.CreatedAt);
+        var count = await query.CountAsync();
+        var data = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+        
+        return (count, data);
+    }
 }

@@ -10,4 +10,5 @@ public interface IAnalysisRepository
     Task UpdateAsync(AnalysisResult result);
     Task<AnalysisResult?> GetByIdAsync(Guid id);
     Task<AnalysisResult?> GetByIdNoTrackingAsync(Guid id); // Sadece okuma işlemleri (GET) için hızlı versiyon
+    Task<(int totalCount, List<AnalysisResult> data)> GetHistoryAsync(int page, int pageSize);
 }
