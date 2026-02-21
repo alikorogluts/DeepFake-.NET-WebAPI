@@ -33,6 +33,7 @@ builder.Services.AddHostedService<RabbitMqResultListener>();
 // REPOSITORY PATTERN KAYDI
 builder.Services.AddScoped<Deepfake.Application.Interfaces.IAnalysisRepository, Deepfake.Infrastructure.Repositories.AnalysisRepository>();
 
+
 // 2. JWT Authentication Ayarları
 var jwtSecret = builder.Configuration["JwtSettings:Secret"];
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -45,7 +46,21 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret!)),
-            ClockSkew = TimeSpan.Zero // Token süresi bittiği an toleranssız iptal et
+            ClockSkew = TimeSpan.Zero 
+        };
+        
+        // YENİ: JWT Middleware'ine "Token'ı Cookie'de de ara" diyoruz!
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                // İstekte 'jwt_token' adında bir çerez varsa, onu kimlik olarak kabul et
+                if (context.Request.Cookies.TryGetValue("jwt_token", out var cookieToken))
+                {
+                    context.Token = cookieToken;
+                }
+                return Task.CompletedTask;
+            }
         };
     });
 

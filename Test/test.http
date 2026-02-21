@@ -1,8 +1,17 @@
 @host = https://localhost:7012
 
-### 1️⃣ Token Al
+### 0️⃣ Token Al (WEB MODU - HttpOnly Cookie Testi)
+# Token JSON olarak dönmez, tarayıcı (veya Rider) bunu kilitli Cookie olarak saklar.
 GET {{host}}/api/Token
 X-Client-Token: super-secret-client-token-123
+X-Client-Platform: web
+
+### 1️⃣ Token Al (MOBİL MODU - JSON Token Testi)
+# Otomasyon testlerimizin çalışması için JSON dönen mobil modu kullanıyoruz, 
+# böylece token'ı değişkene alıp alttaki Bearer kısımlarına yerleştirebiliyoruz.
+GET {{host}}/api/Token
+X-Client-Token: super-secret-client-token-123
+X-Client-Platform: mobile
 
 > {% client.global.set("token", response.body.token); %}
 
@@ -28,10 +37,25 @@ Authorization: Bearer {{token}}
 GET {{host}}/api/Analysis/history?page=1&pageSize=5
 Authorization: Bearer {{token}}
 
+### 5️⃣ 🚨 HACKER TESTİ (Magic Numbers)
+# Kalkan (Rate Limit) dolmadan önce bunu test ediyoruz ki 
+# 429 değil, 400 (Geçersiz dosya imzası) hatası versin!
+POST {{host}}/api/Analysis/upload
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="sahte.jpg"
+Content-Type: image/jpeg
+
+< ./sahte.jpg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
 ### 🚨 RATE LIMIT (HIZ SINIRI) ZORLAMA TESTİ 🚨
-# Sınır dakikada 5. Biz burada arka arkaya 5 istek daha atıp (toplam 6) kalkanı patlatacağız!
+# Sınır dakikada 5. Şu ana kadar 2 başarılı Upload denemesi yaptık (1 Gerçek, 1 Sahte). 
+# Toplam 5'i geçmek için arka arkaya 4 istek daha atıp kalkanı patlatacağız!
 
-### İstek 2
+### Spam 1
 POST {{host}}/api/Analysis/upload
 Authorization: Bearer {{token}}
 Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
@@ -43,7 +67,7 @@ Content-Type: image/jpeg
 < ./test.jpeg
 ------WebKitFormBoundary7MA4YWxkTrZu0gW--
 
-### İstek 3
+### Spam 2
 POST {{host}}/api/Analysis/upload
 Authorization: Bearer {{token}}
 Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
@@ -55,7 +79,7 @@ Content-Type: image/jpeg
 < ./test.jpeg
 ------WebKitFormBoundary7MA4YWxkTrZu0gW--
 
-### İstek 4
+### Spam 3
 POST {{host}}/api/Analysis/upload
 Authorization: Bearer {{token}}
 Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
@@ -67,19 +91,7 @@ Content-Type: image/jpeg
 < ./test.jpeg
 ------WebKitFormBoundary7MA4YWxkTrZu0gW--
 
-### İstek 5
-POST {{host}}/api/Analysis/upload
-Authorization: Bearer {{token}}
-Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
-
-------WebKitFormBoundary7MA4YWxkTrZu0gW
-Content-Disposition: form-data; name="image"; filename="test.jpeg"
-Content-Type: image/jpeg
-
-< ./test.jpeg
-------WebKitFormBoundary7MA4YWxkTrZu0gW--
-
-### İstek 6 (BURASI 429 TOO MANY REQUESTS HATASI VERMELİ!)
+### Spam 4 (BURASI 429 TOO MANY REQUESTS HATASI VERMELİ!)
 POST {{host}}/api/Analysis/upload
 Authorization: Bearer {{token}}
 Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
@@ -92,18 +104,6 @@ Content-Type: image/jpeg
 ------WebKitFormBoundary7MA4YWxkTrZu0gW--
 
 ### 🛡️ KALKAN DOĞRULAMA TESTİ
-# Upload yasaklandı ama History (Geçmiş) sorunsuz çalışmaya devam etmeli! (200 OK vermeli)
+# Upload yasaklandı (429 veriyor) ama History (Geçmiş) sorunsuz çalışmaya devam etmeli! (200 OK)
 GET {{host}}/api/Analysis/history?page=1&pageSize=5
 Authorization: Bearer {{token}}
-
-### 🚨 HACKER TESTİ (Magic Numbers)
-POST {{host}}/api/Analysis/upload
-Authorization: Bearer {{token}}
-Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
-
-------WebKitFormBoundary7MA4YWxkTrZu0gW
-Content-Disposition: form-data; name="image"; filename="sahte.jpg"
-Content-Type: image/jpeg
-
-< ./sahte.jpg
-------WebKitFormBoundary7MA4YWxkTrZu0gW--
