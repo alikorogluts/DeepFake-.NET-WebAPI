@@ -16,7 +16,7 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.Processing;
 
-namespace ASP.NET_Core_Web_API.Controllers;
+namespace Deepfake.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]

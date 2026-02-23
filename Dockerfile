@@ -4,13 +4,14 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
+# Tüm projeleri kopyala
 COPY . .
 
 # Restore solution
 RUN dotnet restore Deepfake.sln
 
-# Publish API project directly (path önemli!!)
-RUN dotnet publish "ASP.NET Core Web API/ASP.NET Core Web API.csproj" \
+# Publish API project (DOĞRU PATH)
+RUN dotnet publish "Deepfake.API/Deepfake.API.csproj" \
     -c Release \
     -o /app/publish \
     --no-restore
@@ -26,4 +27,5 @@ COPY --from=build /app/publish .
 
 EXPOSE 80
 
-ENTRYPOINT ["dotnet", "ASP.NET Core Web API.dll"]
+# DLL adı project adıyla aynı olmalı
+ENTRYPOINT ["dotnet", "Deepfake.API.dll"]

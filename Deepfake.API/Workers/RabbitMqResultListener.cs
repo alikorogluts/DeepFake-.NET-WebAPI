@@ -14,7 +14,7 @@ using Microsoft.Extensions.Logging;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 
-namespace ASP.NET_Core_Web_API.Workers;
+namespace Deepfake.API.Workers;
 
 public class RabbitMqResultListener : BackgroundService
 {

@@ -6,7 +6,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Deepfake.Application", "Dee
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Deepfake.Infrastructure", "Deepfake.Infrastructure\Deepfake.Infrastructure.csproj", "{E518E563-4805-40E7-A96E-831AF3501B32}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ASP.NET Core Web API", "ASP.NET Core Web API\ASP.NET Core Web API.csproj", "{E1CB5544-2159-4D7F-B694-1090AFABE124}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Deepfake.API", "Deepfake.API\Deepfake.API.csproj", "{E1CB5544-2159-4D7F-B694-1090AFABE124}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

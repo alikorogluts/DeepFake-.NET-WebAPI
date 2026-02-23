@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 
-namespace ASP.NET_Core_Web_API.Controllers;
+namespace Deepfake.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]

@@ -1,6 +1,6 @@
 using System.Net;
 
-namespace ASP.NET_Core_Web_API.Middlewares;
+namespace Deepfake.API.Middlewares;
 
 public class IpValidationMiddleware
 {

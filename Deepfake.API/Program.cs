@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Threading.RateLimiting;
-using ASP.NET_Core_Web_API.Workers;
+using Deepfake.API.Workers;
 using DotNetEnv;
 
 #region 🔥 ENV YÜKLEME
@@ -158,7 +158,7 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.UseMiddleware<ASP.NET_Core_Web_API.Middlewares.IpValidationMiddleware>();
+app.UseMiddleware<Deepfake.API.Middlewares.IpValidationMiddleware>();
 
 app.MapControllers();
 
