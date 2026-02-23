@@ -39,5 +39,3 @@ env/
 # Uygulama Sırları ve Loglar
 # =========================
 *.log
-appsettings.json
-appsettings.Development.json

@@ -12,8 +12,7 @@ namespace Deepfake.Infrastructure.Services;
 public class RabbitMqPublisherService : IAnalysisJobPublisher
 {
     private readonly IConfiguration _config;
-    // Bağlantıyı bir kere açıp tekrar kullanmak için hafızada tutuyoruz
-    private static IConnection? _connection; 
+    private static IConnection? _connection;
     private static readonly object _lock = new();
 
     public RabbitMqPublisherService(IConfiguration config)
@@ -21,21 +20,35 @@ public class RabbitMqPublisherService : IAnalysisJobPublisher
         _config = config;
     }
 
-    // Singleton Connection (Bağlantı) Üretici
     private async Task<IConnection> GetConnectionAsync()
     {
         if (_connection != null && _connection.IsOpen)
             return _connection;
 
-        var factory = new ConnectionFactory
-        {
-            HostName = _config["RabbitMq:Host"],
-            Port = int.Parse(_config["RabbitMq:Port"] ?? "5672"),
-            UserName = _config["RabbitMq:Username"],
-            Password = _config["RabbitMq:Password"]
-        };
+        var rabbitUrl = _config["RABBITMQ_URL"];
 
-        // Eğer bağlantı koptuysa veya hiç açılmadıysa yeni bir tane aç
+        ConnectionFactory factory;
+
+        // 🔥 URL varsa onu kullan
+        if (!string.IsNullOrEmpty(rabbitUrl))
+        {
+            factory = new ConnectionFactory
+            {
+                Uri = new Uri(rabbitUrl)
+            };
+        }
+        else
+        {
+            // 🔥 URL yoksa eski sistem
+            factory = new ConnectionFactory
+            {
+                HostName = _config["RabbitMq:Host"],
+                Port = int.Parse(_config["RabbitMq:Port"] ?? "5672"),
+                UserName = _config["RabbitMq:Username"],
+                Password = _config["RabbitMq:Password"]
+            };
+        }
+
         _connection = await factory.CreateConnectionAsync();
         return _connection;
     }
@@ -44,16 +57,15 @@ public class RabbitMqPublisherService : IAnalysisJobPublisher
     {
         try
         {
-            // Sadece tek bir bağlantı üzerinden hafif bir kanal (Channel) açıyoruz
             var connection = await GetConnectionAsync();
             await using var channel = await connection.CreateChannelAsync();
 
-            // Sihirli metin GİTTİ -> AppConstants.AnalysisQueue GELDİ!
-            await channel.QueueDeclareAsync(queue: AppConstants.AnalysisQueue,
-                                            durable: true,
-                                            exclusive: false,
-                                            autoDelete: false,
-                                            arguments: null);
+            await channel.QueueDeclareAsync(
+                queue: AppConstants.AnalysisQueue,
+                durable: true,
+                exclusive: false,
+                autoDelete: false
+            );
 
             var payload = new
             {
@@ -69,17 +81,19 @@ public class RabbitMqPublisherService : IAnalysisJobPublisher
                 Persistent = true
             };
 
-            // Sihirli metin GİTTİ -> AppConstants.AnalysisQueue GELDİ!
-            await channel.BasicPublishAsync(exchange: "",
-                                            routingKey: AppConstants.AnalysisQueue,
-                                            mandatory: false,
-                                            basicProperties: properties,
-                                            body: body);
+            await channel.BasicPublishAsync(
+                exchange: "",
+                routingKey: AppConstants.AnalysisQueue,
+                mandatory: false,
+                basicProperties: properties,
+                body: body
+            );
 
             return true;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            Console.WriteLine($"RabbitMQ Publish Error: {ex.Message}");
             return false;
         }
     }
