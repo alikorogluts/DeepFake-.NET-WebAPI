@@ -5,37 +5,64 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Threading.RateLimiting;
 using ASP.NET_Core_Web_API.Workers;
+using DotNetEnv;
+
+#region 🔥 ENV YÜKLEME
+// .env dosyasını local ve docker ortamında otomatik yükler
+Env.Load();
+#endregion
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Veritabanı Bağlantısı
+#region 🟢 DATABASE
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(
+        Environment.GetEnvironmentVariable("DB_CONNECTION")
+        ?? throw new Exception("DB_CONNECTION not found")
+    )
+);
+#endregion
 
+#region 🔵 SUPABASE
+var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL");
+var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY");
 
-var supabaseUrl = builder.Configuration["Supabase:Url"];
-var supabaseKey = builder.Configuration["Supabase:Key"];
-var supabaseOptions = new Supabase.SupabaseOptions { AutoConnectRealtime = false };
+builder.Services.AddSingleton(
+    new Supabase.Client(
+        supabaseUrl ?? throw new Exception("SUPABASE_URL missing"),
+        supabaseKey ?? throw new Exception("SUPABASE_KEY missing"),
+        new Supabase.SupabaseOptions { AutoConnectRealtime = false }
+    )
+);
+#endregion
 
-// Supabase Client'ı Singleton olarak (tek bir örnek) sisteme kaydediyoruz
-builder.Services.AddSingleton(new Supabase.Client(supabaseUrl!, supabaseKey, supabaseOptions));
+#region 🟡 STORAGE SERVICE
+builder.Services.AddScoped<
+    Deepfake.Application.Interfaces.IStorageService,
+    Deepfake.Infrastructure.Services.SupabaseStorageService
+>();
+#endregion
 
-// Kendi yazdığımız IStorageService'i Infrastructure'daki SupabaseStorageService ile eşleştiriyoruz
-builder.Services.AddScoped<Deepfake.Application.Interfaces.IStorageService, Deepfake.Infrastructure.Services.SupabaseStorageService>();
+#region 🟠 RABBITMQ
+builder.Services.AddScoped<
+    Deepfake.Application.Interfaces.IAnalysisJobPublisher,
+    Deepfake.Infrastructure.Services.RabbitMqPublisherService
+>();
 
+builder.Services.AddHostedService<RabbitMqResultListener>();
+#endregion
 
-// RABBITMQ PUBLISHER SERVİSİ
-builder.Services.AddScoped<Deepfake.Application.Interfaces.IAnalysisJobPublisher, Deepfake.Infrastructure.Services.RabbitMqPublisherService>();
+#region 🔴 REPOSITORY
+builder.Services.AddScoped<
+    Deepfake.Application.Interfaces.IAnalysisRepository,
+    Deepfake.Infrastructure.Repositories.AnalysisRepository
+>();
+#endregion
 
-// Arka Plan Dinleyicisini (Worker) Kaydet
-builder.Services.AddHostedService<RabbitMqResultListener>();   
+#region 🔐 JWT AUTHENTICATION
+var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET")
+    ?? throw new Exception("JWT_SECRET not found");
 
-// REPOSITORY PATTERN KAYDI
-builder.Services.AddScoped<Deepfake.Application.Interfaces.IAnalysisRepository, Deepfake.Infrastructure.Repositories.AnalysisRepository>();
-
-
-// 2. JWT Authentication Ayarları
-var jwtSecret = builder.Configuration["JwtSettings:Secret"];
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -45,16 +72,17 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateAudience = false,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret!)),
-            ClockSkew = TimeSpan.Zero 
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(jwtSecret)
+            ),
+            ClockSkew = TimeSpan.Zero
         };
-        
-        // YENİ: JWT Middleware'ine "Token'ı Cookie'de de ara" diyoruz!
+
+        // Cookie'den JWT okuma
         options.Events = new JwtBearerEvents
         {
             OnMessageReceived = context =>
             {
-                // İstekte 'jwt_token' adında bir çerez varsa, onu kimlik olarak kabul et
                 if (context.Request.Cookies.TryGetValue("jwt_token", out var cookieToken))
                 {
                     context.Token = cookieToken;
@@ -63,42 +91,56 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             }
         };
     });
+#endregion
 
-
-// 3. IP Tabanlı Akıllı Rate Limiter Ayarları
+#region ⚡ RATE LIMITER
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-    options.GlobalLimiter = System.Threading.RateLimiting.PartitionedRateLimiter.CreateChained( 
-        // 1. Kural: Dakikada 5 İstek [cite: 305]
-    System.Threading.RateLimiting.PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-    {
-        // SADECE Upload endpoint'ini sınırla!
-        if (httpContext.Request.Path.StartsWithSegments("/api/Analysis/upload", StringComparison.OrdinalIgnoreCase))
-        {
-            var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-            return System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter($"{ip}-min", _ =>
-                new System.Threading.RateLimiting.FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(1) });
-        }
-        // Diğer tüm istekler (history, result) Sınırsız!
-        return System.Threading.RateLimiting.RateLimitPartition.GetNoLimiter("unlimited");
-    }),
-        
-    
-    System.Threading.RateLimiting.PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-    {
-        if (httpContext.Request.Path.StartsWithSegments("/api/Analysis/upload", StringComparison.OrdinalIgnoreCase))
-        {
-            var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-            return System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter($"{ip}-hour", _ =>
-                new System.Threading.RateLimiting.FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromHours(1) });
-        }
-        return System.Threading.RateLimiting.RateLimitPartition.GetNoLimiter("unlimited");
-    })
-    );
-});
+    options.GlobalLimiter =
+        PartitionedRateLimiter.CreateChained(
 
+            // Dakikada 5 istek (upload için)
+            PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+            {
+                if (httpContext.Request.Path.StartsWithSegments("/api/Analysis/upload"))
+                {
+                    var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+                    return RateLimitPartition.GetFixedWindowLimiter(
+                        $"{ip}-min",
+                        _ => new FixedWindowRateLimiterOptions
+                        {
+                            PermitLimit = 5,
+                            Window = TimeSpan.FromMinutes(1)
+                        });
+                }
+
+                return RateLimitPartition.GetNoLimiter("unlimited");
+            }),
+
+            // Saatlik limit
+            PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+            {
+                if (httpContext.Request.Path.StartsWithSegments("/api/Analysis/upload"))
+                {
+                    var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+                    return RateLimitPartition.GetFixedWindowLimiter(
+                        $"{ip}-hour",
+                        _ => new FixedWindowRateLimiterOptions
+                        {
+                            PermitLimit = 20,
+                            Window = TimeSpan.FromHours(1)
+                        });
+                }
+
+                return RateLimitPartition.GetNoLimiter("unlimited");
+            })
+        );
+});
+#endregion
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
@@ -112,11 +154,10 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-app.UseRateLimiter(); // Kimlik doğrulamadan önce hızı kes!
-app.UseAuthentication(); // Önce kimlik doğrula (JWT)
-app.UseAuthorization();  // Sonra yetki ver
+app.UseRateLimiter();
+app.UseAuthentication();
+app.UseAuthorization();
 
-// KENDİ YAZDIĞIMIZ IP KALKANI BURAYA GELECEK:
 app.UseMiddleware<ASP.NET_Core_Web_API.Middlewares.IpValidationMiddleware>();
 
 app.MapControllers();
