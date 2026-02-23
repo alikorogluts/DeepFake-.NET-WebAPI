@@ -1,24 +1,23 @@
 ﻿# ===============================
-# BUILD STAGE
+# BUILD
 # ===============================
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-# Solution + tüm projeleri kopyala
 COPY . .
 
-# Restore (solution üzerinden yapıyoruz)
+# Restore solution
 RUN dotnet restore Deepfake.sln
 
-# Publish sadece API projesi için
-RUN dotnet publish Deepfake.API/Deepfake.API.csproj \
+# Publish API project directly (path önemli!!)
+RUN dotnet publish "ASP.NET Core Web API/ASP.NET Core Web API.csproj" \
     -c Release \
     -o /app/publish \
     --no-restore
 
 
 # ===============================
-# RUNTIME STAGE
+# RUNTIME
 # ===============================
 FROM mcr.microsoft.com/dotnet/aspnet:9.0
 WORKDIR /app
@@ -27,4 +26,4 @@ COPY --from=build /app/publish .
 
 EXPOSE 80
 
-ENTRYPOINT ["dotnet", "Deepfake.API.dll"]
+ENTRYPOINT ["dotnet", "ASP.NET Core Web API.dll"]
