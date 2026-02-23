@@ -7,10 +7,19 @@ using System.Threading.RateLimiting;
 using Deepfake.API.Workers;
 using DotNetEnv;
 
+
 #region 🔥 ENV YÜKLEME
-// .env dosyasını local ve docker ortamında otomatik yükler
-Env.Load();
+try
+{
+    // YENİ: TraversePath() ekledik. Ana dizindeki .env dosyasını otomatik bulur!
+    DotNetEnv.Env.TraversePath().Load();
+}
+catch
+{
+    Console.WriteLine("Uyarı: .env dosyası bulunamadı. Sistem ortam değişkenleri kullanılacak.");
+}
 #endregion
+
 
 var builder = WebApplication.CreateBuilder(args);
 
