@@ -21,10 +21,16 @@ public class TokenController : ControllerBase
     [HttpGet]
     public IActionResult GenerateToken(
         [FromHeader(Name = "X-Client-Token")] string? clientToken,
-        [FromHeader(Name = "X-Client-Platform")] string platform = "web") // YENİ: Platform parametresi
+        [FromHeader(Name = "X-Client-Platform")] string platform = "web") 
     {
-        // 1. İstemci (App) Doğrulaması
-        var expectedToken = _config["AppConfig:ClientToken"];
+        // 1. İstemci (App) Doğrulaması (Farklı isimlendirmelere karşı korumalı)
+        var expectedToken = _config["AppConfig:ClientToken"] ?? _config["AppConfig__ClientToken"];
+        
+        if (string.IsNullOrEmpty(expectedToken))
+        {
+            return StatusCode(500, new { message = "Sunucu Hatası: ClientToken ortam değişkeni bulunamadı!" });
+        }
+
         if (clientToken != expectedToken)
         {
             return Unauthorized(new { message = "Geçersiz istemci uygulaması." });
@@ -40,10 +46,23 @@ public class TokenController : ControllerBase
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
 
-        // 4. Token'ı Şifrele ve Üret
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["JwtSettings:Secret"]!));
+        // 4. Şifreyi ve Süreyi Güvenli Bir Şekilde Al (Çökmeyi Önleyen Kısım)
+        var secretKey = _config["JWT_SECRET"] ?? _config["JwtSettings:Secret"] ?? _config["JwtSettings__Secret"];
+        
+        if (string.IsNullOrEmpty(secretKey))
+        {
+            return StatusCode(500, new { message = "Sunucu Hatası: JWT Secret ortam değişkeni bulunamadı!" });
+        }
+
+        var expirationStr = _config["JwtSettings:ExpirationInMinutes"] ?? _config["JwtSettings__ExpirationInMinutes"] ?? "60";
+        if (!double.TryParse(expirationStr, out double expirationMinutes))
+        {
+            expirationMinutes = 60; // Okuyamazsa varsayılan 1 saat
+        }
+
+        // 5. Token'ı Şifrele ve Üret
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-        var expirationMinutes = Convert.ToDouble(_config["JwtSettings:ExpirationInMinutes"]);
         var expirationDate = DateTime.UtcNow.AddMinutes(expirationMinutes);
 
         var token = new JwtSecurityToken(
@@ -54,21 +73,19 @@ public class TokenController : ControllerBase
 
         var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
 
-        // 5. YENİ: Platforma Göre Güvenlik Dağıtımı (Web vs Mobile)
+        // 6. Platforma Göre Güvenlik Dağıtımı (Web vs Mobile)
         if (platform.ToLower() == "web")
         {
-            // Web (Next.js) için kırılamaz HttpOnly çerez oluştur
             var cookieOptions = new CookieOptions
             {
-                HttpOnly = true, // JavaScript KESİNLİKLE okuyamaz (XSS koruması)
-                Secure = true,   // Sadece HTTPS üzerinden gider (Ağa sızanlar göremez)
-                SameSite = SameSiteMode.Strict, // CSRF koruması
-                Expires = expirationDate // Çerez ömrü = Token ömrü
+                HttpOnly = true, 
+                Secure = true,   
+                SameSite = SameSiteMode.Strict, 
+                Expires = expirationDate 
             };
             
             Response.Cookies.Append("jwt_token", tokenString, cookieOptions);
             
-            // Web'e Token dönmüyoruz! Sadece başarılı olduğuna dair mesaj dönüyoruz.
             return Ok(new 
             { 
                 success = true, 
@@ -77,7 +94,6 @@ public class TokenController : ControllerBase
             });
         }
         
-        // Eğer platform "mobile" ise klasik JSON yanıtını dön
         return Ok(new
         {
             success = true,
