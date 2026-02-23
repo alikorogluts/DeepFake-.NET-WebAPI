@@ -4,13 +4,13 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-# Tüm projeleri kopyala
+# Tüm projeleri (sln, csprojlar ve kodlar) kopyala
 COPY . .
 
-# Restore solution
+# Bağımlılıkları geri yükle
 RUN dotnet restore Deepfake.sln
 
-# Publish API project (DOĞRU PATH)
+# API projesini publish et
 RUN dotnet publish "Deepfake.API/Deepfake.API.csproj" \
     -c Release \
     -o /app/publish \
@@ -23,9 +23,12 @@ RUN dotnet publish "Deepfake.API/Deepfake.API.csproj" \
 FROM mcr.microsoft.com/dotnet/aspnet:9.0
 WORKDIR /app
 
+# Derlenmiş dosyaları kopyala
 COPY --from=build /app/publish .
 
+# Railway için Port Ayarı (Genelde 80 veya Railway'in atadığı PORT kullanılır)
+ENV ASPNETCORE_URLS=http://+:80
 EXPOSE 80
 
-# DLL adı project adıyla aynı olmalı
+# DLL adı doğruluğunu kontrol edin
 ENTRYPOINT ["dotnet", "Deepfake.API.dll"]
