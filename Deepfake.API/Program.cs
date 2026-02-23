@@ -7,11 +7,10 @@ using System.Threading.RateLimiting;
 using Deepfake.API.Workers;
 using DotNetEnv;
 
-
 #region 🔥 ENV YÜKLEME
 try
 {
-    // YENİ: TraversePath() ekledik. Ana dizindeki .env dosyasını otomatik bulur!
+    // TraversePath() ekledik. Ana dizindeki .env dosyasını otomatik bulur!
     DotNetEnv.Env.TraversePath().Load();
 }
 catch
@@ -19,7 +18,6 @@ catch
     Console.WriteLine("Uyarı: .env dosyası bulunamadı. Sistem ortam değişkenleri kullanılacak.");
 }
 #endregion
-
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -151,6 +149,21 @@ builder.Services.AddRateLimiter(options =>
 });
 #endregion
 
+#region 🌐 CORS AYARLARI (Geliştirme Aşaması)
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+    {
+        // Geliştirme aşaması için herkese açık. 
+        // AllowCredentials ile birlikte AllowAnyOrigin kullanılamayacağı için bu taktiği uyguluyoruz:
+        policy.SetIsOriginAllowed(_ => true) 
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials(); 
+    });
+});
+#endregion
+
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
@@ -159,9 +172,12 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+    // 🚨 YENİ: Https Redirection'ı sadece Development ortamına aldık ki Railway'in Reverse Proxy'sinde 502 hatası vermesin!
+    app.UseHttpsRedirection(); 
 }
 
-app.UseHttpsRedirection();
+// 🚨 YENİ: CORS Middleware KESİNLİKLE kimlik doğrulamadan önce çağrılmalıdır!
+app.UseCors("AllowAll");
 
 app.UseRateLimiter();
 app.UseAuthentication();
@@ -171,4 +187,6 @@ app.UseMiddleware<Deepfake.API.Middlewares.IpValidationMiddleware>();
 
 app.MapControllers();
 
-app.Run();
+// 🚨 YENİ: Railway'in işletim sisteminden dinamik olarak atadığı PORT'u yakalayıp dinliyoruz
+var port = Environment.GetEnvironmentVariable("PORT") ?? "80";
+app.Run($"http://0.0.0.0:{port}");

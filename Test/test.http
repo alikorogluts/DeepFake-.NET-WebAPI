@@ -1,4 +1,4 @@
-@host = https://localhost:7012
+@host = https://deepfake-net-webapi-production.up.railway.app
 
 ### 0️⃣ Token Al (WEB MODU - HttpOnly Cookie Testi)
 # Token JSON olarak dönmez, tarayıcı (veya Rider) bunu kilitli Cookie olarak saklar.
