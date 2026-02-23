@@ -31,18 +31,28 @@ public class RabbitMqResultListener : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var factory = new ConnectionFactory
+        var factory = new ConnectionFactory();
+        
+        // YENİ: Önce Railway'in verdiği tam URL var mı diye bakıyoruz
+        var rabbitUrl = _config["RABBITMQ_URL"];
+
+        if (!string.IsNullOrEmpty(rabbitUrl))
         {
-            HostName = _config["RabbitMq:Host"],
-            Port = int.Parse(_config["RabbitMq:Port"] ?? "5672"),
-            UserName = _config["RabbitMq:Username"],
-            Password = _config["RabbitMq:Password"]
-        };
+            // Railway'deysek (veya URL girilmişse) tek satırda bağlan
+            factory.Uri = new Uri(rabbitUrl);
+        }
+        else
+        {
+            // Lokal bilgisayarımızdaysak eski usül bağlan
+            factory.HostName = _config["RabbitMq:Host"] ?? "localhost";
+            factory.Port = int.Parse(_config["RabbitMq:Port"] ?? "5672");
+            factory.UserName = _config["RabbitMq:Username"] ?? "guest";
+            factory.Password = _config["RabbitMq:Password"] ?? "guest";
+        }
 
         var connection = await factory.CreateConnectionAsync(stoppingToken);
         var channel = await connection.CreateChannelAsync(cancellationToken: stoppingToken);
 
-        // Sihirli metin GİTTİ -> AppConstants.ResultQueue GELDİ
         await channel.QueueDeclareAsync(queue: AppConstants.ResultQueue, durable: true, exclusive: false, autoDelete: false, arguments: null, cancellationToken: stoppingToken);
 
         var consumer = new AsyncEventingBasicConsumer(channel);
@@ -70,7 +80,6 @@ public class RabbitMqResultListener : BackgroundService
             }
         };
 
-        // Sihirli metin GİTTİ -> AppConstants.ResultQueue GELDİ
         await channel.BasicConsumeAsync(queue: AppConstants.ResultQueue, autoAck: false, consumer: consumer, cancellationToken: stoppingToken);
         
         _logger.LogInformation("🚀 .NET RabbitMQ Result Listener başlatıldı...");
@@ -82,11 +91,9 @@ public class RabbitMqResultListener : BackgroundService
     {
         using var scope = _scopeFactory.CreateScope();
         
-        // AppDbContext GİTTİ -> IAnalysisRepository GELDİ!
         var repository = scope.ServiceProvider.GetRequiredService<IAnalysisRepository>();
         var storageService = scope.ServiceProvider.GetRequiredService<IStorageService>();
 
-        // FindAsync GİTTİ -> GetByIdAsync GELDİ!
         var record = await repository.GetByIdAsync(payload.Id);
         if (record == null) return;
 
@@ -107,7 +114,6 @@ public class RabbitMqResultListener : BackgroundService
             record.ExifSuspiciousIndicators = payload.ExifSuspiciousIndicators;
             record.ProcessingTimeSeconds = payload.ProcessingTimeSeconds;
 
-            // Sihirli metin olan "analysis-images" GİTTİ -> AppConstants.StorageBucket GELDİ!
             if (!string.IsNullOrEmpty(payload.GradcamImageBase64))
             {
                 var bytes = Convert.FromBase64String(payload.GradcamImageBase64);
@@ -129,7 +135,6 @@ public class RabbitMqResultListener : BackgroundService
 
         record.UpdatedAt = DateTime.UtcNow;
         
-        // SaveChangesAsync GİTTİ -> UpdateAsync GELDİ!
         await repository.UpdateAsync(record);
     }
 }
