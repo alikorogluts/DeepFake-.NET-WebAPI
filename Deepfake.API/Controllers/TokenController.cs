@@ -80,7 +80,8 @@ public class TokenController : ControllerBase
             {
                 HttpOnly = true, 
                 Secure = true,   
-                SameSite = SameSiteMode.Strict, 
+                //SameSite = SameSiteMode.Strict,  ToDo yayınlarken burayı düzelt 
+                SameSite = SameSiteMode.None,
                 Expires = expirationDate 
             };
             
