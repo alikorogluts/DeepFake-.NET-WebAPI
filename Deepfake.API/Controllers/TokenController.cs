@@ -82,7 +82,8 @@ public class TokenController : ControllerBase
                 Secure = true,   
                 //SameSite = SameSiteMode.Strict,  ToDo yayınlarken burayı düzelt 
                 SameSite = SameSiteMode.None,
-                Expires = expirationDate 
+                Expires = expirationDate ,
+                Path = "/"
             };
             
             Response.Cookies.Append("jwt_token", tokenString, cookieOptions);
