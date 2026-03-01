@@ -20,20 +20,16 @@ namespace Deepfake.API.Extensions
                     context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
                     context.HttpContext.Response.ContentType = "application/json";
 
-                    // Varsayılan hata mesajı
                     string errorMessage = "Çok fazla istek attınız. Lütfen daha sonra tekrar deneyin.";
 
-                    // 🚨 AKILLI KONTROL: Sistemin verdiği bekleme süresini (RetryAfter) okuyoruz
                     if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out TimeSpan retryAfter))
                     {
                         if (retryAfter.TotalMinutes > 1)
                         {
-                            // Eğer beklemesi gereken süre 1 dakikadan fazlaysa, Saatlik limite takılmıştır
                             errorMessage = $"Saatlik yükleme sınırınızı (20 resim) aştınız. Lütfen {Math.Ceiling(retryAfter.TotalMinutes)} dakika sonra tekrar deneyin.";
                         }
                         else
                         {
-                            // Eğer beklemesi gereken süre 1 dakikadan azsa, Dakikalık limite takılmıştır
                             errorMessage = $"Dakikalık yükleme sınırınızı (5 resim) aştınız. Lütfen {Math.Ceiling(retryAfter.TotalSeconds)} saniye sonra tekrar deneyin.";
                         }
                     }
@@ -46,39 +42,60 @@ namespace Deepfake.API.Extensions
                 };
 
                 options.GlobalLimiter = PartitionedRateLimiter.CreateChained(
-                    // Dakikalık Limit (1 dakikada 5 istek)
+                    
+                    // 🛡️ 1. ZİNCİR: AUTH KORUMASI (Saf REST Uyumlu)
                     PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
                     {
-                        bool isUploadRequest = httpContext.Request.Path.StartsWithSegments("/api/analyses") && 
+                        var path = httpContext.Request.Path;
+                        var method = httpContext.Request.Method;
+
+                        // 🟢 GET /api/v1/auth -> Status kontrolü (Sınırsız)
+                        if (path.StartsWithSegments("/api/v1/auth") && HttpMethods.IsGet(method))
+                        {
+                            return RateLimitPartition.GetNoLimiter("unlimited");
+                        }
+
+                        // 🔴 POST /api/v1/auth -> Token alma (5 dakikada 3 kez ile sınırlı)
+                        if (path.StartsWithSegments("/api/v1/auth") && HttpMethods.IsPost(method))
+                        {
+                            var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                            return RateLimitPartition.GetFixedWindowLimiter($"{ip}-auth", _ => 
+                                new FixedWindowRateLimiterOptions { PermitLimit = 3, Window = TimeSpan.FromMinutes(5) });
+                        }
+
+                        return RateLimitPartition.GetNoLimiter("unlimited");
+                    }),
+
+                    // 🛡️ 2. ZİNCİR: ANALİZ (UPLOAD) KORUMASI (Dakikalık)
+                    PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+                    {
+                        // 🚨 ROTA GÜNCELLEDİ: /api/v1/analyses ve POST kontrolü
+                        bool isUploadRequest = httpContext.Request.Path.StartsWithSegments("/api/v1/analyses") && 
                                                HttpMethods.IsPost(httpContext.Request.Method);
 
                         if (isUploadRequest)
                         {
-                            var ip = httpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault()?.Split(',').First().Trim() 
-                                     ?? httpContext.Connection.RemoteIpAddress?.ToString() 
-                                     ?? "unknown";
+                            var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
                             return RateLimitPartition.GetFixedWindowLimiter(
-                                $"{ip}-min",
+                                $"{ip}-upload-min",
                                 _ => new FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(1) });
                         }
                         return RateLimitPartition.GetNoLimiter("unlimited");
                     }),
 
-                    // Saatlik Limit (1 Saatte 20 istek)
+                    // 🛡️ 3. ZİNCİR: ANALİZ (UPLOAD) KORUMASI (Saatlik)
                     PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
                     {
-                        bool isUploadRequest = httpContext.Request.Path.StartsWithSegments("/api/analyses") && 
+                        bool isUploadRequest = httpContext.Request.Path.StartsWithSegments("/api/v1/analyses") && 
                                                HttpMethods.IsPost(httpContext.Request.Method);
 
                         if (isUploadRequest)
                         {
-                            var ip = httpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault()?.Split(',').First().Trim() 
-                                     ?? httpContext.Connection.RemoteIpAddress?.ToString() 
-                                     ?? "unknown";
+                            var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
                             return RateLimitPartition.GetFixedWindowLimiter(
-                                $"{ip}-hour",
+                                $"{ip}-upload-hour",
                                 _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromHours(1) });
                         }
                         return RateLimitPartition.GetNoLimiter("unlimited");

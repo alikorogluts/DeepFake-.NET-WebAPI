@@ -9,22 +9,25 @@ namespace Deepfake.API.Extensions
     {
         public static IServiceCollection AddCustomJwtAuth(this IServiceCollection services, string jwtSecret)
         {
+            // Ortam değişkenlerini alıyoruz
+            var issuer = Environment.GetEnvironmentVariable("JWT_ISSUER");
+            var audience = Environment.GetEnvironmentVariable("JWT_AUDIENCE");
+
             services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
                 {
                     options.TokenValidationParameters = new TokenValidationParameters
                     {
-                        ValidateIssuer = false,
-                        ValidateAudience = false,
+                        ValidateIssuer = true, // Feedback: Artık doğrula
+                        ValidateAudience = true, // Feedback: Artık doğrula
                         ValidateLifetime = true,
                         ValidateIssuerSigningKey = true,
-                        IssuerSigningKey = new SymmetricSecurityKey(
-                            Encoding.UTF8.GetBytes(jwtSecret)
-                        ),
-                        ClockSkew = TimeSpan.Zero
+                        ValidIssuer = issuer,
+                        ValidAudience = audience,
+                        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
+                        ClockSkew = TimeSpan.FromSeconds(30) // Feedback 5: 5 dk bekleme, 30 sn'de bitir
                     };
 
-                    // Cookie'den JWT okuma
                     options.Events = new JwtBearerEvents
                     {
                         OnMessageReceived = context =>
@@ -33,13 +36,11 @@ namespace Deepfake.API.Extensions
                             {
                                 context.Token = cookieToken;
                             }
-
                             return Task.CompletedTask;
                         }
                     };
                 });
 
             return services;
-        }
-    }
+        }    }
 }
