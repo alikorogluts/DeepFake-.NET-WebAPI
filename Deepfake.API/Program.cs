@@ -1,13 +1,8 @@
-using System.Text;
 using Deepfake.Infrastructure.Persistence;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
-using System.Threading.RateLimiting;
 using Deepfake.API.Workers;
-using DotNetEnv;
 using Microsoft.AspNetCore.HttpOverrides; // 🚨 Yeni eklendi: Proxy üzerinden gerçek IP için
-
+using Deepfake.API.Extensions;
 #region 🔥 ENV YÜKLEME
 try
 {
@@ -38,6 +33,12 @@ builder.Services.AddDbContext<AppDbContext>(options =>
         ?? throw new Exception("DB_CONNECTION not found")
     )
 );
+#endregion
+
+#region 🟣 İMAGE PROCESSING SERVICES
+
+builder.Services.AddScoped<Deepfake.Application.Interfaces.IImageProcessingService,Deepfake.Infrastructure.Services.ImageProcessingService>();
+
 #endregion
 
 #region 🔵 SUPABASE
@@ -77,72 +78,11 @@ builder.Services.AddScoped<
 #endregion
 
 #region 🔐 JWT AUTHENTICATION
-var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET")
-    ?? throw new Exception("JWT_SECRET not found");
-
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = false,
-            ValidateAudience = false,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(jwtSecret)
-            ),
-            ClockSkew = TimeSpan.Zero
-        };
-
-        // Cookie'den JWT okuma
-        options.Events = new JwtBearerEvents
-        {
-            OnMessageReceived = context =>
-            {
-                if (context.Request.Cookies.TryGetValue("jwt_token", out var cookieToken))
-                {
-                    context.Token = cookieToken;
-                }
-                return Task.CompletedTask;
-            }
-        };
-    });
+var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? throw new Exception("JWT_SECRET not found");
+builder.Services.AddCustomJwtAuth(jwtSecret);
 #endregion
-
 #region ⚡ RATE LIMITER
-builder.Services.AddRateLimiter(options =>
-{
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-
-    options.GlobalLimiter =
-        PartitionedRateLimiter.CreateChained(
-            // Dakikada 5 istek (upload için)
-            PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-            {
-                if (httpContext.Request.Path.StartsWithSegments("/api/Analysis/upload"))
-                {
-                    var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-                    return RateLimitPartition.GetFixedWindowLimiter(
-                        $"{ip}-min",
-                        _ => new FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(1) });
-                }
-                return RateLimitPartition.GetNoLimiter("unlimited");
-            }),
-            // Saatlik limit
-            PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-            {
-                if (httpContext.Request.Path.StartsWithSegments("/api/Analysis/upload"))
-                {
-                    var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-                    return RateLimitPartition.GetFixedWindowLimiter(
-                        $"{ip}-hour",
-                        _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromHours(1) });
-                }
-                return RateLimitPartition.GetNoLimiter("unlimited");
-            })
-        );
-});
+builder.Services.AddCustomRateLimiter();
 #endregion
 
 #region 🌐 CORS AYARLARI
@@ -160,7 +100,7 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
-
+builder.Services.AddHealthChecks();
 var app = builder.Build();
 
 // 🚨 2. ADIM: MIDDLEWARE SIRALAMASI (KRİTİK)
@@ -176,15 +116,16 @@ if (app.Environment.IsDevelopment())
 
 // CORS, Authentication'dan önce çağrılmalıdır.
 app.UseCors("AllowAll");
-
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// 🚨 TODO: Eğer 403 almaya devam edersen, IP doğrulama mantığını X-Forwarded-For başlığına bakacak şekilde güncellemelisin.
-//app.UseMiddleware<Deepfake.API.Middlewares.IpValidationMiddleware>();
+
+app.UseMiddleware<Deepfake.API.Middlewares.IpValidationMiddleware>();
 
 app.MapControllers();
+app.MapHealthChecks("/health");
+
 
 // TODO: Gelecekte sistem loglarını (Serilog) merkezi bir yere toplamak için yapılandırma ekle.
 // TODO: Veritabanı migration'larını uygulama ayağa kalkarken otomatik çalıştırmak için kod ekle.

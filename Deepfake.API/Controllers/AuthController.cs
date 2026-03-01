@@ -8,17 +8,17 @@ using Microsoft.IdentityModel.Tokens;
 namespace Deepfake.API.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
-public class TokenController : ControllerBase
+[Route("api/v1/[controller]")]
+public class AuthController : ControllerBase
 {
     private readonly IConfiguration _config;
 
-    public TokenController(IConfiguration config)
+    public AuthController(IConfiguration config)
     {
         _config = config;
     }
 
-    [HttpGet]
+    [HttpPost]
     public IActionResult GenerateToken(
         [FromHeader(Name = "X-Client-Token")] string? clientToken,
         [FromHeader(Name = "X-Client-Platform")] string platform = "web") 
