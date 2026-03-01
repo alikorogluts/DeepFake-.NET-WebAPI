@@ -15,24 +15,29 @@ namespace Deepfake.API.Middlewares
 
         public async Task Invoke(HttpContext context)
         {
-            // 1. Kullanıcı giriş yapmış mı?
             if (context.User.Identity?.IsAuthenticated == true)
             {
-                // 2. Token içindeki IP'yi al (Claim tipini "ip" olarak belirlemiştik)
-                var tokenIp = context.User.Claims.FirstOrDefault(c => c.Type == "ip")?.Value;
+                // 1. Token içindeki IP'yi al ve temizle
+                var rawTokenIp = context.User.Claims.FirstOrDefault(c => c.Type == "ip")?.Value;
+                var cleanTokenIp = rawTokenIp?.Replace("::ffff:", "");
 
-                // 3. Kullanıcının ŞU ANKİ GERÇEK IP'sini al
-                // NOT: Program.cs'deki UseForwardedHeaders sayesinde bu değer artık Proxy IP'si değil, 
-                // doğrudan kullanıcının GERÇEK IP'sidir.
-                var currentIp = context.Connection.RemoteIpAddress?.ToString();
+                // 2. Güncel bağlantı IP'sini al ve temizle
+                var rawCurrentIp = context.Connection.RemoteIpAddress?.ToString();
+                var cleanCurrentIp = rawCurrentIp?.Replace("::ffff:", "");
 
-                // 4. Localhost Uyumluluğu (IPv6 - IPv4 eşitleme)
-                if (currentIp == "::1") currentIp = "127.0.0.1";
-                if (tokenIp == "::1") tokenIp = "127.0.0.1";
+                // 3. Localhost (IPv6 to IPv4) Normalizasyonu
+                if (cleanCurrentIp == "::1") cleanCurrentIp = "127.0.0.1";
+                if (cleanTokenIp == "::1") cleanTokenIp = "127.0.0.1";
 
-                // 5. Karşılaştırma
-                if (!string.IsNullOrEmpty(tokenIp) && tokenIp != currentIp)
+                // 📝 DEBUG LOG: Railway Dashboard'da bu iki değeri yan yana görelim
+                Console.WriteLine($"🔍 [IP VALIDATION] Token IP: {cleanTokenIp} | Connection IP: {cleanCurrentIp}");
+
+                // 4. Karşılaştırma
+                if (!string.IsNullOrEmpty(cleanTokenIp) && cleanTokenIp != cleanCurrentIp)
                 {
+                    // ❌ Hata Logu
+                    Console.WriteLine($"❌ [IP MISMATCH] Güvenlik Engeli: {cleanTokenIp} != {cleanCurrentIp}");
+
                     context.Response.StatusCode = StatusCodes.Status403Forbidden;
                     await context.Response.WriteAsJsonAsync(new 
                     { 

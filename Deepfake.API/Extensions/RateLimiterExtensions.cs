@@ -43,42 +43,49 @@ namespace Deepfake.API.Extensions
 
                 options.GlobalLimiter = PartitionedRateLimiter.CreateChained(
                     
-                    // 🛡️ 1. ZİNCİR: AUTH KORUMASI (Saf REST Uyumlu)
+                    // 🛡️ 1. ZİNCİR: AUTH KORUMASI
                     PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
                     {
                         var path = httpContext.Request.Path;
                         var method = httpContext.Request.Method;
 
-                        // 🟢 GET /api/v1/auth -> Status kontrolü (Sınırsız)
                         if (path.StartsWithSegments("/api/v1/auth") && HttpMethods.IsGet(method))
                         {
                             return RateLimitPartition.GetNoLimiter("unlimited");
                         }
 
-                        // 🔴 POST /api/v1/auth -> Token alma (5 dakikada 3 kez ile sınırlı)
                         if (path.StartsWithSegments("/api/v1/auth") && HttpMethods.IsPost(method))
                         {
-                            var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-                            return RateLimitPartition.GetFixedWindowLimiter($"{ip}-auth", _ => 
+                            // IP'yi al ve temizle (::ffff: gibi ön ekleri sil)
+                            var rawIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                            var cleanIp = rawIp.Replace("::ffff:", "");
+                            
+                            // 📝 DEBUG LOG
+                            Console.WriteLine($"🚦 [RATE LIMIT - AUTH] Path: {path} | Method: {method} | IP: {cleanIp}");
+
+                            return RateLimitPartition.GetFixedWindowLimiter($"{cleanIp}-auth", _ => 
                                 new FixedWindowRateLimiterOptions { PermitLimit = 3, Window = TimeSpan.FromMinutes(5) });
                         }
 
                         return RateLimitPartition.GetNoLimiter("unlimited");
                     }),
 
-                    // 🛡️ 2. ZİNCİR: ANALİZ (UPLOAD) KORUMASI (Dakikalık)
+                    // 🛡️ 2. ZİNCİR: ANALİZ (UPLOAD) KORUMASI (Dakikalık & Saatlik birleşik log yapısı)
                     PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
                     {
-                        // 🚨 ROTA GÜNCELLEDİ: /api/v1/analyses ve POST kontrolü
                         bool isUploadRequest = httpContext.Request.Path.StartsWithSegments("/api/v1/analyses") && 
                                                HttpMethods.IsPost(httpContext.Request.Method);
 
                         if (isUploadRequest)
                         {
-                            var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                            var rawIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                            var cleanIp = rawIp.Replace("::ffff:", "");
+
+                            // 📝 DEBUG LOG
+                            Console.WriteLine($"🚦 [RATE LIMIT - UPLOAD] IP: {cleanIp} | Target: Analyses POST");
 
                             return RateLimitPartition.GetFixedWindowLimiter(
-                                $"{ip}-upload-min",
+                                $"{cleanIp}-upload-min",
                                 _ => new FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(1) });
                         }
                         return RateLimitPartition.GetNoLimiter("unlimited");
@@ -92,10 +99,10 @@ namespace Deepfake.API.Extensions
 
                         if (isUploadRequest)
                         {
-                            var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                            var cleanIp = httpContext.Connection.RemoteIpAddress?.ToString()?.Replace("::ffff:", "") ?? "unknown";
 
                             return RateLimitPartition.GetFixedWindowLimiter(
-                                $"{ip}-upload-hour",
+                                $"{cleanIp}-upload-hour",
                                 _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromHours(1) });
                         }
                         return RateLimitPartition.GetNoLimiter("unlimited");

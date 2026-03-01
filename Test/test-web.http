@@ -1,0 +1,137 @@
+### =============================================================
+### 🌐 WEB MODU TEST DOSYASI
+### Çalıştırma: Bu dosyayı AYRI bir sekme/oturumda çalıştırın.
+### Rider cookie'leri istekler arasında paylaşır — mobil testlerle
+### KESİNLİKLE aynı anda çalıştırmayın!
+### =============================================================
+
+@host = https://deepfake-api.up.railway.app
+
+### ─────────────────────────────────────────────────────────
+### 0️⃣  Token Al — WEB MODU
+### ─────────────────────────────────────────────────────────
+# Beklenen → 200 OK
+# Token JSON dönmez. Tarayıcı cookie kasasına yazılır:
+#   set-cookie: jwt_token=...; HttpOnly; Secure; SameSite=None
+# Rider bu cookie'yi otomatik saklar ve sonraki isteklerde gönderir.
+POST {{host}}/api/v1/auth
+X-Client-Token: super-secret-client-token-123
+X-Client-Platform: web
+
+### ─────────────────────────────────────────────────────────
+### 1️⃣  Token Durum Kontrolü
+### ─────────────────────────────────────────────────────────
+# Cookie önceki adımda set edildiği için Bearer gerekmez.
+# Rider cookie'yi otomatik gönderir.
+# Beklenen → 200 { "isAuthenticated": true }
+GET {{host}}/api/v1/auth
+
+### ─────────────────────────────────────────────────────────
+### 2️⃣  Görsel Upload — Cookie ile (ID'yi Hafızaya Alır)
+### ─────────────────────────────────────────────────────────
+# Cookie otomatik gönderilir, Authorization header GEREKMİYOR.
+# Beklenen → 200 { analysisId: "..." }
+POST {{host}}/api/v1/analyses
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="test.jpeg"
+Content-Type: image/jpeg
+
+< ./test.jpeg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+> {% client.global.set("analysisId", response.body.analysisId); %}
+
+### ─────────────────────────────────────────────────────────
+### 3️⃣  Analiz Sonucunu Sorgulama — Polling
+### ─────────────────────────────────────────────────────────
+# Beklenen → 202 (işlem devam ediyor) veya 200 (tamamlandı)
+GET {{host}}/api/v1/analyses/{{analysisId}}
+
+### ─────────────────────────────────────────────────────────
+### 4️⃣  Geçmiş Listeleme
+### ─────────────────────────────────────────────────────────
+# Rate Limit'e TABİ DEĞİLDİR.
+# Beklenen → 200 { data: [...] }
+GET {{host}}/api/v1/analyses?page=1&pageSize=5
+
+### ─────────────────────────────────────────────────────────
+### 5️⃣  Magic Numbers — Sahte Dosya Testi
+### ─────────────────────────────────────────────────────────
+# Beklenen → 400 Bad Request (Rate Limit sayacını ETKİLEMEZ)
+POST {{host}}/api/v1/analyses
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="sahte.jpg"
+Content-Type: image/jpeg
+
+< ./sahte.jpg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### ─────────────────────────────────────────────────────────
+### 🚨 Upload Rate Limit — Dakika Sınırı (5/dk)
+### ─────────────────────────────────────────────────────────
+
+### Upload Spam 1 (2/5)
+POST {{host}}/api/v1/analyses
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="test.jpeg"
+Content-Type: image/jpeg
+
+< ./test.jpeg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### Upload Spam 2 (3/5)
+POST {{host}}/api/v1/analyses
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="test.jpeg"
+Content-Type: image/jpeg
+
+< ./test.jpeg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### Upload Spam 3 (4/5)
+POST {{host}}/api/v1/analyses
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="test.jpeg"
+Content-Type: image/jpeg
+
+< ./test.jpeg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### Upload Spam 4 (5/5)
+POST {{host}}/api/v1/analyses
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="test.jpeg"
+Content-Type: image/jpeg
+
+< ./test.jpeg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### Upload Spam 5 — 429 TOO MANY REQUESTS bekleniyor!
+### Mesaj: "Dakikalık yükleme sınırınızı (5 resim) aştınız. X saniye sonra deneyin."
+POST {{host}}/api/v1/analyses
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="test.jpeg"
+Content-Type: image/jpeg
+
+< ./test.jpeg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### ─────────────────────────────────────────────────────────
+### 🛡️  Kalkan Doğrulama — Upload yasaklıyken History çalışmalı
+### ─────────────────────────────────────────────────────────
+# Beklenen → 200 OK (Rate Limit bu endpoint'i etkilemez)
+GET {{host}}/api/v1/analyses?page=1&pageSize=5

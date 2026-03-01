@@ -17,12 +17,17 @@ catch
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 🚨 1. ADIM: FORWARDED HEADERS KONFİGÜRASYONU
+// 🚨 1. ADIM: FORWARDED HEADERS KONFİGÜRASYONU (GÜNCELLENDİ)
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    
+    // Railway proxy zinciri kullandığı için sınırları kaldırıyoruz
     options.KnownNetworks.Clear();
     options.KnownProxies.Clear();
+    
+    // 💡 Eklenen satır: Proxy sayısını önemseme, en baştaki IP'yi al
+    options.ForwardLimit = null; 
 });
 
 #region 🟢 DATABASE

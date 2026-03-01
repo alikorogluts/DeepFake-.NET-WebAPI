@@ -1,0 +1,190 @@
+### =============================================================
+### 📱 MOBİL MODU TEST DOSYASI
+### Çalıştırma: Bu dosyayı web-test.http'den BAĞIMSIZ çalıştırın.
+### Token, ilk adımda değişkene alınır ve sonraki tüm isteklerde
+### Bearer header olarak kullanılır. Cookie GÖNDERILMEZ.
+### =============================================================
+
+@host = https://deepfake-api.up.railway.app
+
+### ─────────────────────────────────────────────────────────
+### 0️⃣  Token Al — MOBİL MODU (Değişkene Atar)
+### ─────────────────────────────────────────────────────────
+# Beklenen → 200 { success: true, token: "eyJ...", expiresAt: "..." }
+# Script: token değişkeni alttaki tüm isteklerde otomatik kullanılır.
+POST {{host}}/api/v1/auth
+X-Client-Token: super-secret-client-token-123
+X-Client-Platform: mobile
+
+> {%
+    client.test("Token alındı", function() {
+        client.assert(response.status === 200, "200 bekleniyor, alınan: " + response.status);
+        client.assert(response.body.token !== undefined, "Token alanı boş!");
+    });
+    client.global.set("token", response.body.token);
+%}
+
+### ─────────────────────────────────────────────────────────
+### 1️⃣  Token Durum Kontrolü
+### ─────────────────────────────────────────────────────────
+# Beklenen → 200 { "isAuthenticated": true }
+GET {{host}}/api/v1/auth
+Authorization: Bearer {{token}}
+
+### ─────────────────────────────────────────────────────────
+### 2️⃣  Görsel Upload — Bearer Token ile (ID'yi Hafızaya Alır)
+### ─────────────────────────────────────────────────────────
+# Beklenen → 200 { success: true, analysisId: "..." }
+POST {{host}}/api/v1/analyses
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="test.jpeg"
+Content-Type: image/jpeg
+
+< ./test.jpeg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+> {%
+    client.test("Upload başarılı", function() {
+        client.assert(response.status === 200, "200 bekleniyor");
+        client.assert(response.body.analysisId !== undefined, "analysisId yok!");
+    });
+    client.global.set("analysisId", response.body.analysisId);
+%}
+
+### ─────────────────────────────────────────────────────────
+### 3️⃣  Analiz Sonucunu Sorgulama — Polling
+### ─────────────────────────────────────────────────────────
+# AI çalışıyorsa  → 202 { status: "Processing" }
+# Tamamlandıysa   → 200 { status: "Completed", result: {...} }
+# Hata            → 500 { status: "Failed" }
+GET {{host}}/api/v1/analyses/{{analysisId}}
+Authorization: Bearer {{token}}
+
+### ─────────────────────────────────────────────────────────
+### 4️⃣  Geçmiş Listeleme
+### ─────────────────────────────────────────────────────────
+# Beklenen → 200 { success: true, totalCount: N, data: [...] }
+GET {{host}}/api/v1/analyses?page=1&pageSize=5
+Authorization: Bearer {{token}}
+
+### ─────────────────────────────────────────────────────────
+### 5️⃣  Magic Numbers — Sahte Dosya Testi
+### ─────────────────────────────────────────────────────────
+# Beklenen → 400 Bad Request
+# "Geçersiz dosya imzası. Sadece gerçek PNG ve JPEG kabul edilir."
+POST {{host}}/api/v1/analyses
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="sahte.jpg"
+Content-Type: image/jpeg
+
+< ./sahte.jpg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### ─────────────────────────────────────────────────────────
+### 🚨 Auth Rate Limit — POST /api/v1/auth (5 dk / 3 istek)
+### ─────────────────────────────────────────────────────────
+# İlk istek (0️⃣) zaten 1 tüketti. 2 istek daha → 3/3 dolar.
+# 4. istekte 429 bekleniyor.
+
+### Auth Spam 2/3
+POST {{host}}/api/v1/auth
+X-Client-Token: super-secret-client-token-123
+X-Client-Platform: mobile
+
+### Auth Spam 3/3
+POST {{host}}/api/v1/auth
+X-Client-Token: super-secret-client-token-123
+X-Client-Platform: mobile
+
+### Auth Spam 4/3 — 429 TOO MANY REQUESTS bekleniyor!
+POST {{host}}/api/v1/auth
+X-Client-Token: super-secret-client-token-123
+X-Client-Platform: mobile
+
+### ─────────────────────────────────────────────────────────
+### 🚨 Upload Rate Limit — Dakika Sınırı (5/dk)
+### ─────────────────────────────────────────────────────────
+# Şu ana kadar: 1 geçerli upload. 4 spam daha → 5/5 dolar.
+# 6. istekte 429 bekleniyor.
+
+### Upload Spam 2/5
+POST {{host}}/api/v1/analyses
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="test.jpeg"
+Content-Type: image/jpeg
+
+< ./test.jpeg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### Upload Spam 3/5
+POST {{host}}/api/v1/analyses
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="test.jpeg"
+Content-Type: image/jpeg
+
+< ./test.jpeg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### Upload Spam 4/5
+POST {{host}}/api/v1/analyses
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="test.jpeg"
+Content-Type: image/jpeg
+
+< ./test.jpeg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### Upload Spam 5/5
+POST {{host}}/api/v1/analyses
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="test.jpeg"
+Content-Type: image/jpeg
+
+< ./test.jpeg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### Upload Spam 6/5 — 429 TOO MANY REQUESTS bekleniyor!
+### Mesaj: "Dakikalık yükleme sınırınızı (5 resim) aştınız. X saniye sonra deneyin."
+POST {{host}}/api/v1/analyses
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="test.jpeg"
+Content-Type: image/jpeg
+
+< ./test.jpeg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### ─────────────────────────────────────────────────────────
+### 🛡️  Kalkan Doğrulama 1 — Upload yasaklıyken History çalışmalı
+### ─────────────────────────────────────────────────────────
+# Beklenen → 200 OK
+GET {{host}}/api/v1/analyses?page=1&pageSize=5
+Authorization: Bearer {{token}}
+
+### ─────────────────────────────────────────────────────────
+### 🛡️  Kalkan Doğrulama 2 — Auth GET sınırsız çalışmalı
+### ─────────────────────────────────────────────────────────
+# Auth POST limiti dolsa bile GET sınırsız çalışır.
+# Beklenen → 200 { "isAuthenticated": true }
+GET {{host}}/api/v1/auth
+Authorization: Bearer {{token}}
