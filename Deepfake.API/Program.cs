@@ -1,77 +1,65 @@
-using Deepfake.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
-using Deepfake.API.Workers;
-using Microsoft.AspNetCore.HttpOverrides;
 using Deepfake.API.Extensions;
+using Deepfake.API.Middlewares; // 👈 Middleware klasörünü ekledik
+using Deepfake.API.Workers;
+using Deepfake.Infrastructure.Persistence;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.EntityFrameworkCore;
 
-#region 🔥 ENV YÜKLEME
-try
-{
-    DotNetEnv.Env.TraversePath().Load();
-}
-catch
-{
-    Console.WriteLine("Uyarı: .env dosyası bulunamadı. Sistem ortam değişkenleri kullanılacak.");
-}
+#region ENV YÜKLEME
+try   { DotNetEnv.Env.TraversePath().Load(); }
+catch { Console.WriteLine("Uyarı: .env bulunamadı. Sistem ortam değişkenleri kullanılacak."); }
 #endregion
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 🚨 1. ADIM: FORWARDED HEADERS KONFİGÜRASYONU (GÜNCELLENDİ)
+// ✅ Kestrel Body Sınırı (DRY Prensibi - Magic Number'dan kurtulduk)
+long maxUploadSize = 10 * 1024 * 1024; // 10 MB
+builder.WebHost.ConfigureKestrel(k =>
+{
+    k.Limits.MaxRequestBodySize = maxUploadSize; 
+});
+
+// ── ForwardedHeaders ─────────────────────────────────────────────────────────
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-    
-    // Railway proxy zinciri kullandığı için sınırları kaldırıyoruz
     options.KnownNetworks.Clear();
     options.KnownProxies.Clear();
-    
-    // 💡 Eklenen satır: Proxy sayısını önemseme, en baştaki IP'yi al
     options.ForwardLimit = null; 
 });
 
-#region 🟢 DATABASE
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(Environment.GetEnvironmentVariable("DB_CONNECTION"))
-);
+#region DATABASE
+builder.Services.AddDbContext<AppDbContext>(o =>
+    o.UseNpgsql(Environment.GetEnvironmentVariable("DB_CONNECTION")));
 #endregion
 
-#region 🟣 SERVICES & REPOSITORIES
+#region SERVICES & REPOSITORIES
 builder.Services.AddScoped<Deepfake.Application.Interfaces.IImageProcessingService, Deepfake.Infrastructure.Services.ImageProcessingService>();
-
 builder.Services.AddScoped<Deepfake.Application.Interfaces.IStorageService, Deepfake.Infrastructure.Services.SupabaseStorageService>();
-
 builder.Services.AddScoped<Deepfake.Application.Interfaces.IAnalysisRepository, Deepfake.Infrastructure.Repositories.AnalysisRepository>();
-
-//  TODO : Analiz temizleme servisi kaydı (Daha önce konuştuğumuz) 
-// builder.Services.AddScoped<Deepfake.Application.Interfaces.IAnalysisCleanupService, Deepfake.Infrastructure.Services.AnalysisCleanupService>();
+// builder.Services.AddScoped<IAnalysisCleanupService, AnalysisCleanupService>();
 #endregion
 
-#region 🔵 SUPABASE & RABBITMQ
-var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL");
-var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY");
-builder.Services.AddSingleton(new Supabase.Client(supabaseUrl!, supabaseKey!, new Supabase.SupabaseOptions { AutoConnectRealtime = false }));
+#region SUPABASE & RABBITMQ
+var supabaseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL")!;
+var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_KEY")!;
+
+builder.Services.AddSingleton(new Supabase.Client(supabaseUrl, supabaseKey,
+    new Supabase.SupabaseOptions { AutoConnectRealtime = false }));
 
 builder.Services.AddScoped<Deepfake.Application.Interfaces.IAnalysisJobPublisher, Deepfake.Infrastructure.Services.RabbitMqPublisherService>();
 builder.Services.AddHostedService<RabbitMqResultListener>();
 // builder.Services.AddHostedService<AnalysisCleanupWorker>();
 #endregion
 
-#region 🔐 SECURITY (JWT & RATE LIMIT)
-var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? throw new Exception("JWT_SECRET missing");
+#region SECURITY — JWT & RATE LIMIT
+var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? throw new InvalidOperationException("JWT_SECRET ortam değişkeni eksik.");
+
 builder.Services.AddCustomJwtAuth(jwtSecret);
 builder.Services.AddCustomRateLimiter();
 
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowAll", policy =>
-    {
-        policy.SetIsOriginAllowed(_ => true) 
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials(); 
-    });
-});
+builder.Services.AddCors(o => o.AddPolicy("AllowAll", p =>
+    p.SetIsOriginAllowed(_ => true).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
 #endregion
 
 builder.Services.AddControllers();
@@ -80,33 +68,40 @@ builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
-// 🚨 2. ADIM: MIDDLEWARE SIRALAMASI
-app.UseForwardedHeaders(); // En üstte kalmalı
+// ════════════════════════════════════════════════════════════════
+// MİDDLEWARE SIRALAMASI — (Kusursuz Akış)
+// ════════════════════════════════════════════════════════════════
+
+// 1. Gerçek IP'yi al
+app.UseForwardedHeaders();
+
+
+
+// 2. ✅ FIX (503): Early Rejection Middleware (Temiz Sınıf Çağrısı)
+app.UseMiddleware<EarlyPayloadRejectionMiddleware>();
 
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
-    app.UseHttpsRedirection(); 
+    app.UseHttpsRedirection();
 }
 
+// 3. CORS
 app.UseCors("AllowAll");
-app.UseRateLimiter(); // Kimlik doğrulamadan önce hızı kesmek performanslıdır
 
+// 4. Rate Limit 
+app.UseRateLimiter();
+
+// 5. Kimlik doğrulama & yetkilendirme
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Bizim özel IP kontrolümüz Yetkilendirmeden SONRA çalışmalı
-app.UseMiddleware<Deepfake.API.Middlewares.IpValidationMiddleware>();
+// 6. IP uyuşmazlığı kontrolü 
+app.UseMiddleware<IpValidationMiddleware>();
 
+// ── Endpoint'ler ─────────────────────────────────────────────────────────────
 app.MapControllers();
 app.MapHealthChecks("/health");
-
-// 🚨 OTOMATIK MIGRATION (Uygulama ayağa kalkarken tabloları basar)
-//using (var scope = app.Services.CreateScope())
-//{
-//  var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-//    db.Database.Migrate();
-//}
 
 var port = Environment.GetEnvironmentVariable("PORT") ?? "80";
 app.Run($"http://0.0.0.0:{port}");

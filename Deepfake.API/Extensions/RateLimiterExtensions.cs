@@ -1,116 +1,157 @@
-using System;
-using System.Linq;
 using System.Threading.RateLimiting;
-using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Deepfake.API.Extensions
+namespace Deepfake.API.Extensions;
+
+public static class RateLimiterExtensions
 {
-    public static class RateLimiterExtensions
+    // ── Sabitler — tek yerden yönet ──────────────────────────────────────────
+    private const int    AuthPermitLimit      = 3;
+    private static readonly TimeSpan AuthWindow = TimeSpan.FromMinutes(5);
+
+    private const int    UploadMinuteLimit    = 5;
+    private static readonly TimeSpan UploadMinuteWindow = TimeSpan.FromMinutes(1);
+
+    private const int    UploadHourLimit      = 20;
+    private static readonly TimeSpan UploadHourWindow = TimeSpan.FromHours(1);
+
+    // Saatlik ile dakikalık pencereyi ayırt etmek için eşik (saniye)
+    // Dakikalık kalan ≤ 120sn, saatlik kalan > 120sn
+    private const double MinuteHourThresholdSeconds = 120;
+
+    public static IServiceCollection AddCustomRateLimiter(this IServiceCollection services)
     {
-        public static IServiceCollection AddCustomRateLimiter(this IServiceCollection services)
+        services.AddRateLimiter(options =>
         {
-            services.AddRateLimiter(options =>
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+            // ✅ FIX: OnRejected artık path+method'a bakarak doğru mesajı üretiyor.
+            // Eski kod sadece retryAfter.TotalMinutes > 1 koşuluna bakıyordu;
+            // Auth limiti (5 dk pencere) bu koşulu sağladığından
+            // "Saatlik yükleme sınırı" mesajı çıkıyordu — YANLIŞ.
+            options.OnRejected = async (context, ct) =>
             {
-                options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+                var response = context.HttpContext.Response;
+                response.StatusCode  = StatusCodes.Status429TooManyRequests;
+                response.ContentType = "application/json";
+                
+                response.Headers.Connection = "close";
 
-                options.OnRejected = async (context, cancellationToken) =>
+                var path   = context.HttpContext.Request.Path;
+                var method = context.HttpContext.Request.Method;
+                context.Lease.TryGetMetadata(MetadataName.RetryAfter, out TimeSpan retryAfter);
+
+                var message = BuildRejectionMessage(path, method, retryAfter);
+
+                Console.WriteLine(
+                    $"🚫 [RATE LIMIT REJECTED] {method} {path} | " +
+                    $"RetryAfter: {retryAfter.TotalSeconds:F0}s | Mesaj: {message}");
+
+                await response.WriteAsJsonAsync(new { success = false, message }, ct);
+            };
+
+            options.GlobalLimiter = PartitionedRateLimiter.CreateChained(
+
+                // ── 1. ZİNCİR: Auth POST koruması (5 dk / 3 istek) ──────────
+                PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
                 {
-                    context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-                    context.HttpContext.Response.ContentType = "application/json";
+                    var path   = ctx.Request.Path;
+                    var method = ctx.Request.Method;
 
-                    string errorMessage = "Çok fazla istek attınız. Lütfen daha sonra tekrar deneyin.";
+                    // GET /api/v1/auth → sınırsız (SPA her açılışta kontrol eder)
+                    if (path.StartsWithSegments("/api/v1/auth") && HttpMethods.IsGet(method))
+                        return RateLimitPartition.GetNoLimiter("unlimited");
 
-                    if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out TimeSpan retryAfter))
+                    // POST /api/v1/auth → 5 dakikada 3 istek
+                    if (path.StartsWithSegments("/api/v1/auth") && HttpMethods.IsPost(method))
                     {
-                        if (retryAfter.TotalMinutes > 1)
-                        {
-                            errorMessage = $"Saatlik yükleme sınırınızı (20 resim) aştınız. Lütfen {Math.Ceiling(retryAfter.TotalMinutes)} dakika sonra tekrar deneyin.";
-                        }
-                        else
-                        {
-                            errorMessage = $"Dakikalık yükleme sınırınızı (5 resim) aştınız. Lütfen {Math.Ceiling(retryAfter.TotalSeconds)} saniye sonra tekrar deneyin.";
-                        }
+                        var ip = GetCleanIp(ctx);
+                        Console.WriteLine($"🚦 [AUTH] IP: {ip}");
+                        return RateLimitPartition.GetFixedWindowLimiter($"{ip}-auth", _ =>
+                            new FixedWindowRateLimiterOptions
+                            {
+                                PermitLimit = AuthPermitLimit,
+                                Window      = AuthWindow,
+                            });
                     }
 
-                    await context.HttpContext.Response.WriteAsJsonAsync(new
-                    {
-                        success = false,
-                        message = errorMessage
-                    }, cancellationToken);
-                };
+                    return RateLimitPartition.GetNoLimiter("unlimited");
+                }),
 
-                options.GlobalLimiter = PartitionedRateLimiter.CreateChained(
-                    
-                    // 🛡️ 1. ZİNCİR: AUTH KORUMASI
-                    PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-                    {
-                        var path = httpContext.Request.Path;
-                        var method = httpContext.Request.Method;
-
-                        if (path.StartsWithSegments("/api/v1/auth") && HttpMethods.IsGet(method))
-                        {
-                            return RateLimitPartition.GetNoLimiter("unlimited");
-                        }
-
-                        if (path.StartsWithSegments("/api/v1/auth") && HttpMethods.IsPost(method))
-                        {
-                            // IP'yi al ve temizle (::ffff: gibi ön ekleri sil)
-                            var rawIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-                            var cleanIp = rawIp.Replace("::ffff:", "");
-                            
-                            // 📝 DEBUG LOG
-                            Console.WriteLine($"🚦 [RATE LIMIT - AUTH] Path: {path} | Method: {method} | IP: {cleanIp}");
-
-                            return RateLimitPartition.GetFixedWindowLimiter($"{cleanIp}-auth", _ => 
-                                new FixedWindowRateLimiterOptions { PermitLimit = 3, Window = TimeSpan.FromMinutes(5) });
-                        }
-
+                // ── 2. ZİNCİR: Upload dakikalık koruma (1 dk / 5 istek) ─────
+                PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
+                {
+                    if (!IsUploadRequest(ctx))
                         return RateLimitPartition.GetNoLimiter("unlimited");
-                    }),
 
-                    // 🛡️ 2. ZİNCİR: ANALİZ (UPLOAD) KORUMASI (Dakikalık & Saatlik birleşik log yapısı)
-                    PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-                    {
-                        bool isUploadRequest = httpContext.Request.Path.StartsWithSegments("/api/v1/analyses") && 
-                                               HttpMethods.IsPost(httpContext.Request.Method);
-
-                        if (isUploadRequest)
+                    var ip = GetCleanIp(ctx);
+                    Console.WriteLine($"🚦 [UPLOAD/MIN] IP: {ip}");
+                    return RateLimitPartition.GetFixedWindowLimiter($"{ip}-upload-min", _ =>
+                        new FixedWindowRateLimiterOptions
                         {
-                            var rawIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-                            var cleanIp = rawIp.Replace("::ffff:", "");
+                            PermitLimit = UploadMinuteLimit,
+                            Window      = UploadMinuteWindow,
+                        });
+                }),
 
-                            // 📝 DEBUG LOG
-                            Console.WriteLine($"🚦 [RATE LIMIT - UPLOAD] IP: {cleanIp} | Target: Analyses POST");
-
-                            return RateLimitPartition.GetFixedWindowLimiter(
-                                $"{cleanIp}-upload-min",
-                                _ => new FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(1) });
-                        }
+                // ── 3. ZİNCİR: Upload saatlik koruma (1 saat / 20 istek) ────
+                PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
+                {
+                    if (!IsUploadRequest(ctx))
                         return RateLimitPartition.GetNoLimiter("unlimited");
-                    }),
 
-                    // 🛡️ 3. ZİNCİR: ANALİZ (UPLOAD) KORUMASI (Saatlik)
-                    PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-                    {
-                        bool isUploadRequest = httpContext.Request.Path.StartsWithSegments("/api/v1/analyses") && 
-                                               HttpMethods.IsPost(httpContext.Request.Method);
-
-                        if (isUploadRequest)
+                    var ip = GetCleanIp(ctx);
+                    return RateLimitPartition.GetFixedWindowLimiter($"{ip}-upload-hour", _ =>
+                        new FixedWindowRateLimiterOptions
                         {
-                            var cleanIp = httpContext.Connection.RemoteIpAddress?.ToString()?.Replace("::ffff:", "") ?? "unknown";
+                            PermitLimit = UploadHourLimit,
+                            Window      = UploadHourWindow,
+                        });
+                })
+            );
+        });
 
-                            return RateLimitPartition.GetFixedWindowLimiter(
-                                $"{cleanIp}-upload-hour",
-                                _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromHours(1) });
-                        }
-                        return RateLimitPartition.GetNoLimiter("unlimited");
-                    })
-                );
-            });
+        return services;
+    }
 
-            return services;
+    // ── Yardımcı metotlar ────────────────────────────────────────────────────
+
+    private static bool IsUploadRequest(HttpContext ctx) =>
+        ctx.Request.Path.StartsWithSegments("/api/v1/analyses") &&
+        HttpMethods.IsPost(ctx.Request.Method);
+
+    // Railway/Docker proxy'sinin eklediği ::ffff: ön ekini temizler
+    private static string GetCleanIp(HttpContext ctx) =>
+        (ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown")
+        .Replace("::ffff:", "");
+
+    private static string BuildRejectionMessage(PathString path, string method, TimeSpan retryAfter)
+    {
+        // Auth POST reddedildi
+        if (path.StartsWithSegments("/api/v1/auth") && HttpMethods.IsPost(method))
+        {
+            var waitSec = (int)Math.Ceiling(retryAfter.TotalSeconds);
+            return $"Çok fazla giriş denemesi. Lütfen {waitSec} saniye sonra tekrar deneyin.";
         }
+
+        // Upload reddedildi — hangi pencere?
+        if (path.StartsWithSegments("/api/v1/analyses") && HttpMethods.IsPost(method))
+        {
+            if (retryAfter.TotalSeconds > MinuteHourThresholdSeconds)
+            {
+                var waitMin = (int)Math.Ceiling(retryAfter.TotalMinutes);
+                return $"Saatlik yükleme sınırınızı ({UploadHourLimit} resim) aştınız. " +
+                       $"Lütfen {waitMin} dakika sonra tekrar deneyin.";
+            }
+            else
+            {
+                var waitSec = (int)Math.Ceiling(retryAfter.TotalSeconds);
+                return $"Dakikalık yükleme sınırınızı ({UploadMinuteLimit} resim) aştınız. " +
+                       $"Lütfen {waitSec} saniye sonra tekrar deneyin.";
+            }
+        }
+
+        return "Çok fazla istek attınız. Lütfen daha sonra tekrar deneyin.";
     }
 }
