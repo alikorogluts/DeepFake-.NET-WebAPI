@@ -36,7 +36,12 @@ public static class RateLimiterExtensions
                 response.StatusCode  = StatusCodes.Status429TooManyRequests;
                 response.ContentType = "application/json";
                 
-                response.Headers.Connection = "close";
+                // ✅ 2. ÇÖZÜM: Varnish 503 Hatasını Önlemek İçin Body'yi Boşa Akıt (Draining)
+                // Varnish'in stream'i başarıyla tamamlayabilmesi için gelen veriyi okuyup "Stream.Null" (hiçlik) içine atıyoruz.
+                if (context.HttpContext.Request.ContentLength > 0 && context.HttpContext.Request.Body.CanRead)
+                {
+                    await context.HttpContext.Request.Body.CopyToAsync(Stream.Null, ct);
+                }
 
                 var path   = context.HttpContext.Request.Path;
                 var method = context.HttpContext.Request.Method;
