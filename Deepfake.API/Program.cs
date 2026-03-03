@@ -93,7 +93,7 @@ if (app.Environment.IsDevelopment())
 }
 
 // 3. CORS
-app.UseCors("AllowAll");
+app.UseCors("AllowedOriginsPolicy");
 
 // 4. Rate Limit 
 app.UseRateLimiter();
