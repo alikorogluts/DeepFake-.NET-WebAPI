@@ -58,8 +58,14 @@ var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? throw new In
 builder.Services.AddCustomJwtAuth(jwtSecret);
 builder.Services.AddCustomRateLimiter();
 
-builder.Services.AddCors(o => o.AddPolicy("AllowAll", p =>
-    p.SetIsOriginAllowed(_ => true).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
+var allowedOriginsStr = Environment.GetEnvironmentVariable("ALLOWED_ORIGINS") ?? "https://deepsecure.up.railway.app";
+var allowedOrigins = allowedOriginsStr.Split(",",StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+builder.Services.AddCors(o=> o.AddPolicy("AllowedOriginsPolicy", p=>
+    p.WithOrigins(allowedOrigins)
+        .AllowAnyMethod()
+        .AllowAnyHeader()
+        .AllowCredentials()
+    ));
 #endregion
 
 builder.Services.AddControllers();
