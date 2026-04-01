@@ -1,5 +1,5 @@
 using Deepfake.API.Extensions;
-using Deepfake.API.Middlewares; // 👈 Middleware klasörünü ekledik
+using Deepfake.API.Middlewares; 
 using Deepfake.API.Workers;
 using Deepfake.Infrastructure.Persistence;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -37,7 +37,6 @@ builder.Services.AddDbContext<AppDbContext>(o =>
 builder.Services.AddScoped<Deepfake.Application.Interfaces.IImageProcessingService, Deepfake.Infrastructure.Services.ImageProcessingService>();
 builder.Services.AddScoped<Deepfake.Application.Interfaces.IStorageService, Deepfake.Infrastructure.Services.SupabaseStorageService>();
 builder.Services.AddScoped<Deepfake.Application.Interfaces.IAnalysisRepository, Deepfake.Infrastructure.Repositories.AnalysisRepository>();
-// builder.Services.AddScoped<IAnalysisCleanupService, AnalysisCleanupService>();
 #endregion
 
 #region SUPABASE & RABBITMQ
@@ -49,7 +48,6 @@ builder.Services.AddSingleton(new Supabase.Client(supabaseUrl, supabaseKey,
 
 builder.Services.AddScoped<Deepfake.Application.Interfaces.IAnalysisJobPublisher, Deepfake.Infrastructure.Services.RabbitMqPublisherService>();
 builder.Services.AddHostedService<RabbitMqResultListener>();
-// builder.Services.AddHostedService<AnalysisCleanupWorker>();
 #endregion
 
 #region SECURITY — JWT & RATE LIMIT
@@ -58,7 +56,8 @@ var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? throw new In
 builder.Services.AddCustomJwtAuth(jwtSecret);
 builder.Services.AddCustomRateLimiter();
 
-var allowedOriginsStr = Environment.GetEnvironmentVariable("ALLOWED_ORIGINS") ?? "https://deepsecure.up.railway.app";
+// 🚀 CORS: Canlı ortam (Client) adresleri eklendi
+var allowedOriginsStr = Environment.GetEnvironmentVariable("ALLOWED_ORIGINS") ?? "https://truvalens.com,https://www.truvalens.com";
 var allowedOrigins = allowedOriginsStr.Split(",",StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 builder.Services.AddCors(o=> o.AddPolicy("AllowedOriginsPolicy", p=>
     p.WithOrigins(allowedOrigins)
@@ -81,15 +80,15 @@ var app = builder.Build();
 // 1. Gerçek IP'yi al
 app.UseForwardedHeaders();
 
-
-
 // 2. ✅ FIX (503): Early Rejection Middleware (Temiz Sınıf Çağrısı)
 app.UseMiddleware<EarlyPayloadRejectionMiddleware>();
 
+
+
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
     app.UseHttpsRedirection();
+    app.MapOpenApi();
 }
 
 // 3. CORS
@@ -109,5 +108,6 @@ app.UseMiddleware<IpValidationMiddleware>();
 app.MapControllers();
 app.MapHealthChecks("/health");
 
-var port = Environment.GetEnvironmentVariable("PORT") ?? "80";
+// 🚀 PORT AYARI (Varsayılan 5000)
+var port = Environment.GetEnvironmentVariable("PORT") ?? "5000";
 app.Run($"http://0.0.0.0:{port}");
