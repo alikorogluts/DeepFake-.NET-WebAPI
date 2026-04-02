@@ -27,7 +27,7 @@ WORKDIR /app
 COPY --from=build /app/publish .
 
 # Railway için Port Ayarı (Genelde 80 veya Railway'in atadığı PORT kullanılır)
-ENV ASPNETCORE_URLS=http://+:5000
+ENV ASPNETCORE_URLS=http://+:5000;http://[::]:5000
 EXPOSE 5000
 
 # DLL adı doğruluğunu kontrol edin

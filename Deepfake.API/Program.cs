@@ -81,7 +81,7 @@ var app = builder.Build();
 app.UseForwardedHeaders();
 
 // 2. ✅ FIX (503): Early Rejection Middleware (Temiz Sınıf Çağrısı)
-//app.UseMiddleware<EarlyPayloadRejectionMiddleware>();
+app.UseMiddleware<EarlyPayloadRejectionMiddleware>();
 
 
 
@@ -102,7 +102,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 // 6. IP uyuşmazlığı kontrolü 
-//app.UseMiddleware<IpValidationMiddleware>();
+app.UseMiddleware<IpValidationMiddleware>();
 
 // ── Endpoint'ler ─────────────────────────────────────────────────────────────
 app.MapControllers();
