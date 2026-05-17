@@ -102,7 +102,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 // 6. IP uyuşmazlığı kontrolü 
-app.UseMiddleware<IpValidationMiddleware>();
+//app.UseMiddleware<IpValidationMiddleware>();
 
 // ── Endpoint'ler ─────────────────────────────────────────────────────────────
 app.MapControllers();
